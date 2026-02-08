@@ -1,12 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from detector import PPEDetector
-from risk_engine import RiskEngine
 from utils import is_overlap, object_belongs_to_person
-import numpy as np
+import os
 
 app = FastAPI()
 detector = None
-person_risks = {}
 
 CLASS_MAP = {
     0: "helmet",
@@ -21,8 +19,22 @@ def load_model():
     detector = PPEDetector("best.pt")
 
 @app.post("/analyse")
-def analyze_frame(image_path: str):
-    detection = detector.detect(image_path)
+async def analyze_frame(file: UploadFile = File(...)):
+    if detector is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+
+    try:
+        contents = await file.read()
+        temp_path = f"/tmp/{file.filename}"
+
+        with open(temp_path, "wb") as f:
+            f.write(contents)
+
+        detection = detector.detect(temp_path)
+        os.remove(temp_path)
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     persons = [d for d in detection if CLASS_MAP.get(d["class_id"]) == "person"]
     helmets = [d for d in detection if CLASS_MAP.get(d["class_id"]) == "helmet"]
@@ -32,12 +44,8 @@ def analyze_frame(image_path: str):
     helmet_violation_count = 0
     vest_violation_count = 0
 
-    for idx, person in enumerate(persons):
-        person_id = f"person_{idx}"
+    for person in persons:
         pbox = person["bbox"]
-
-        if person_id not in person_risks:
-            person_risks[person_id] = RiskEngine()
 
         if not any(object_belongs_to_person(pbox, h["bbox"]) for h in helmets) \
            or any(is_overlap(pbox, nh["bbox"]) for nh in no_helmets):
