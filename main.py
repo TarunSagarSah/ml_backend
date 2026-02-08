@@ -59,3 +59,6 @@ async def analyze_frame(file: UploadFile = File(...)):
         "no_of_helmet_violation": helmet_violation_count,
         "no_of_vest_violation": vest_violation_count
     }
+@app.get("/")
+def root():
+    return {"status": "Backend is running!"}
